@@ -1669,6 +1669,9 @@ select option{background:var(--dlg);color:var(--ink)}
   </div>
 </dialog>
 
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script>
 (function(){
 "use strict";
@@ -7475,11 +7478,27 @@ function q(s){return '"'+String(s).replace(/"/g,'""')+'"';}
 setInterval(focoTick,250);
 /* ---------- arranque ---------- */
 readCache();render();
-if(!window.claude||!claude.use){dbEstado="no";render();return;}
-setTimeout(function(){if(dbEstado==="cargando"){dbEstado="no";render();}},15000);
-claude.use("db").catch(function(){return null;}).then(function(db){
-  if(!db){dbEstado="no";render();return;}
-  dbEstado="ok";
+
+var FB_CONFIG={
+  apiKey: "AIzaSyC-J7AcfNaHlqfKtBB_eMfXORkfUVuPTtk",
+  authDomain: "penikke.firebaseapp.com",
+  projectId: "penikke",
+  storageBucket: "penikke.firebasestorage.app",
+  messagingSenderId: "347568294283",
+  appId: "1:347568294283:web:3b4b5116717a12e48dc78e"
+};
+
+function scopedDb(fs,uid){
+  var base="users/"+uid;
+  return {
+    collection:function(name){return fs.collection(base+"/"+name);},
+    doc:function(path){return fs.doc(base+"/"+path);}
+  };
+}
+
+function iniciarSync(uid){
+  dbEstado="cargando";render();
+  var db=scopedDb(firebase.firestore(),uid);
   DB=db;
   db.collection("compromisos").onSnapshot(function(s){
     try{
@@ -7488,7 +7507,7 @@ claude.use("db").catch(function(){return null;}).then(function(db){
         for(var k in src)if(Object.prototype.hasOwnProperty.call(src,k))o[k]=src[k];
         o.id=d.id;return o;
       });
-      aplicaVista();render();cache();
+      dbEstado="ok";aplicaVista();render();cache();
     }catch(e){console.warn("compromisos:",e);}
   },warn);
   db.collection("pagos").onSnapshot(function(s){
@@ -7569,8 +7588,65 @@ claude.use("db").catch(function(){return null;}).then(function(db){
       Amovs=next;aplicaVista();render();cache();
     }catch(e){console.warn("movimientos:",e);}
   },warn);
-}).catch(function(){});
-claude.use("sample").then(function(sp){if(sp){SAMPLE=sp;render();}}).catch(function(){});
+}
+
+/* ---------- acceso (Firebase Auth) ---------- */
+(function(){
+  try{ firebase.initializeApp(FB_CONFIG); }catch(e){}
+  var gate=document.createElement("div");
+  gate.id="fbGate";
+  gate.innerHTML=
+    '<style>'+
+    '#fbGate{position:fixed;inset:0;z-index:99999;background:#F4EFE7;display:flex;align-items:center;justify-content:center;font-family:"IBM Plex Sans",-apple-system,sans-serif;padding:20px;box-sizing:border-box}'+
+    '#fbGate .box{background:#fff;border:1px solid rgba(22,33,28,.11);border-radius:22px;padding:28px 26px;width:320px;max-width:100%;box-shadow:0 20px 46px -22px rgba(14,159,110,.35)}'+
+    '#fbGate h2{font-family:"Century Gothic","Questrial",sans-serif;font-weight:400;margin:0 0 6px;font-size:21px;color:#16211C}'+
+    '#fbGate p{font-size:12.5px;color:#4F615A;margin:0 0 16px;line-height:1.5}'+
+    '#fbGate input{width:100%;box-sizing:border-box;padding:10px 13px;margin-bottom:10px;border:1px solid rgba(22,33,28,.14);border-radius:12px;font-size:14px;font-family:inherit;background:#faf9f5;color:#16211C}'+
+    '#fbGate input:focus{outline:2px solid rgba(14,159,110,.25);border-color:#0E9F6E}'+
+    '#fbGate button{width:100%;padding:11px;border-radius:999px;border:0;font-size:13.5px;font-weight:600;cursor:pointer;margin-bottom:8px;font-family:inherit}'+
+    '#fbGate .primary{background:linear-gradient(135deg,#12B57E,#0B8659);color:#fff}'+
+    '#fbGate .secondary{background:#F4EFE7;color:#16211C;border:1px solid rgba(22,33,28,.14)}'+
+    '#fbGate .err{color:#DC3B57;font-size:12px;margin:-4px 0 10px;min-height:14px}'+
+    '</style>'+
+    '<div class="box">'+
+      '<h2>Penikke</h2>'+
+      '<p>Inicia sesión con tu correo para sincronizar tus datos entre dispositivos.</p>'+
+      '<input type="email" id="fbEmail" placeholder="Correo electrónico" autocomplete="email">'+
+      '<input type="password" id="fbPass" placeholder="Contraseña (mín. 6 caracteres)" autocomplete="current-password">'+
+      '<div class="err" id="fbErr"></div>'+
+      '<button class="primary" id="fbIn">Iniciar sesión</button>'+
+      '<button class="secondary" id="fbUp">Crear cuenta nueva</button>'+
+    '</div>';
+  document.body.appendChild(gate);
+  var errEl=gate.querySelector("#fbErr");
+  function msg(e){
+    var c=(e&&e.code)||"";
+    if(c==="auth/invalid-email")return "Correo inválido.";
+    if(c==="auth/missing-password"||c==="auth/weak-password")return "La contraseña debe tener al menos 6 caracteres.";
+    if(c==="auth/email-already-in-use")return "Ese correo ya tiene una cuenta. Usa \"Iniciar sesión\".";
+    if(c==="auth/invalid-credential"||c==="auth/wrong-password"||c==="auth/user-not-found")return "Correo o contraseña incorrectos.";
+    return (e&&e.message)||"Ocurrió un error.";
+  }
+  gate.querySelector("#fbIn").onclick=function(){
+    errEl.textContent="";
+    var email=gate.querySelector("#fbEmail").value.trim(), pass=gate.querySelector("#fbPass").value;
+    firebase.auth().signInWithEmailAndPassword(email,pass).catch(function(e){errEl.textContent=msg(e);});
+  };
+  gate.querySelector("#fbUp").onclick=function(){
+    errEl.textContent="";
+    var email=gate.querySelector("#fbEmail").value.trim(), pass=gate.querySelector("#fbPass").value;
+    firebase.auth().createUserWithEmailAndPassword(email,pass).catch(function(e){errEl.textContent=msg(e);});
+  };
+  firebase.auth().onAuthStateChanged(function(user){
+    if(user){
+      gate.style.display="none";
+      iniciarSync(user.uid);
+    }else{
+      gate.style.display="flex";
+      dbEstado="no";render();
+    }
+  });
+})();
 })();
 </script>
 

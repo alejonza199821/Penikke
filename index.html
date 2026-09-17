@@ -7590,6 +7590,42 @@ function iniciarSync(uid){
   },warn);
 }
 
+/* ---------- importar respaldo (desde localStorage de otra versión) ---------- */
+function importarBackup(raw){
+  if(!DB)return Promise.resolve("Primero inicia sesión.");
+  var B;
+  try{ B=typeof raw==="string"?JSON.parse(raw):raw; }catch(e){ return Promise.resolve("JSON inválido: "+e.message); }
+  var ps=[];
+  (B.items||[]).forEach(function(it){
+    var b=Object.assign({},it),id=b.id;delete b.id;
+    ps.push(DB.doc("compromisos/"+id).set(b));
+  });
+  Object.keys(B.pagos||{}).forEach(function(per){
+    ps.push(DB.doc("pagos/"+per).set({items:(B.pagos[per]||{}).items||{}}));
+  });
+  Object.keys(B.presu||{}).forEach(function(k){
+    ps.push(DB.doc("presupuestos/"+k).set({cats:(B.presu[k]||{}).cats||{}}));
+  });
+  (B.patri||[]).forEach(function(x){
+    var b=Object.assign({},x),id=b.id;delete b.id;
+    ps.push(DB.doc("patrimonio/"+id).set(b));
+  });
+  (B.cuentas||[]).forEach(function(c){
+    var b=Object.assign({},c),id=b.id;delete b.id;
+    ps.push(DB.doc("cuentas/"+id).set(b));
+  });
+  Object.keys(B.agenda||{}).forEach(function(per){
+    ps.push(DB.doc("agenda/"+per).set({lista:(B.agenda[per]||{}).lista||[]}));
+  });
+  Object.keys(B.movs||{}).forEach(function(per){
+    ps.push(DB.doc("movimientos/"+per).set({lista:(B.movs[per]||{}).lista||[]}));
+  });
+  ps.push(DB.doc("config/perfiles").set({lista:(B.perfiles||[]).map(function(x){return {id:x.id,nombre:x.nombre,ini:x.ini,color:x.color};})}));
+  ps.push(DB.doc("config/ui").set({kpi:(B.ui||{}).kpi||{},catsG:B.catsG||[],catsI:B.catsI||[],temas:(B.ui||{}).temas||{},tipos:(B.ui||{}).tipos||{},trab:(B.ui||{}).trab||{},vida:(B.ui||{}).vida||{},cats:(B.ui||{}).cats||[],gcal:(B.ui||{}).gcal||""}));
+  return Promise.all(ps).then(function(){return "Listo: se importaron "+ps.length+" registros.";}).catch(function(e){return "Error al importar: "+e.message;});
+}
+window.importarBackup=function(raw){ return importarBackup(raw).then(function(m){console.log(m);return m;}); };
+
 /* ---------- acceso (Firebase Auth) ---------- */
 (function(){
   try{ firebase.initializeApp(FB_CONFIG); }catch(e){}
